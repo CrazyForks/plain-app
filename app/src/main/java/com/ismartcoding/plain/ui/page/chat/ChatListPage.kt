@@ -6,11 +6,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import com.ismartcoding.plain.appContext
 import com.ismartcoding.plain.chat.channel.ChannelCacher
 import com.ismartcoding.plain.chat.ChatCacher
 import com.ismartcoding.plain.chat.peer.PeerCacher
@@ -18,6 +24,13 @@ import com.ismartcoding.plain.chat.peer.PeerStatusManager
 import com.ismartcoding.plain.db.getBestIp
 import com.ismartcoding.plain.enums.ButtonSize
 import com.ismartcoding.plain.enums.DeviceType
+import com.ismartcoding.plain.events.PermissionsResultEvent
+import com.ismartcoding.plain.events.RequestPermissionsEvent
+import com.ismartcoding.plain.features.Permission
+import com.ismartcoding.plain.lib.channel.Channel
+import com.ismartcoding.plain.lib.channel.sendEvent
+import com.ismartcoding.plain.lib.isQPlus
+import com.ismartcoding.plain.lib.isTPlus
 import com.ismartcoding.plain.preferences.LocalWeb
 import com.ismartcoding.plain.ui.base.AlertType
 import com.ismartcoding.plain.ui.base.BottomSpace
@@ -59,6 +72,22 @@ fun ChatListPage(
     }
     val channels = ChannelCacher.channels.collectAsStateValue()
 
+    var nearbyGranted by remember {
+        mutableStateOf(
+            !isTPlus() || Permission.NEARBY_WIFI_DEVICES.can(appContext)
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        Channel.sharedFlow.collect { event ->
+            if (event !is PermissionsResultEvent) return@collect
+            if (!event.map.containsKey(android.Manifest.permission.NEARBY_WIFI_DEVICES)) return@collect
+            val granted = Permission.NEARBY_WIFI_DEVICES.can(appContext)
+            nearbyGranted = granted
+            if (granted) PeerStatusManager.ensureAwareStarted()
+        }
+    }
+
     PScaffold(
         topBar = { TopBarChat(navController, channelVM, onNavigateBack = { navController.popBackStack() }) },
     ) { paddingValues ->
@@ -81,6 +110,20 @@ fun ChatListPage(
                             onClick = {
                                 mainVM.enableHttpServer(context, true)
                             })
+                    }
+                }
+                item {
+                    if (isQPlus() && !nearbyGranted) PAlert(
+                        description = stringResource(Res.string.nearby_wifi_devices_required_for_chat),
+                        AlertType.WARNING,
+                    ) {
+                        PFilledButton(
+                            text = stringResource(Res.string.grant_nearby_wifi_devices),
+                            buttonSize = ButtonSize.SMALL,
+                            onClick = {
+                                sendEvent(RequestPermissionsEvent(Permission.NEARBY_WIFI_DEVICES))
+                            },
+                        )
                     }
                 }
                 item {
